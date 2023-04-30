@@ -8,6 +8,11 @@ The biggest problem this solves is the users data .yaml file getting too big and
 
 If you need help join: discord.fplugins.com
 
+## Install Command
+```
+openmod install Feli.UserDataStore.MySql
+```
+
 ## Configuration
 ```yml
 Database:
