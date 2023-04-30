@@ -21,11 +21,11 @@ jobs:
         with:
           dotnet-version: 7.0.x
       - name: Update version
-        run: 'sed -i "s#<Version>0.0.0</Version>#<Version>${{ github.event.inputs.version }}</Version>#" UserDataStore.MySql/UserDataStore.MySql.cspoj'
+        run: 'sed -i "s#<Version>0.0.0</Version>#<Version>${{ github.event.inputs.version }}</Version>#" UserDataStore.MySql/UserDataStore.MySql.csproj'
       - name: Update package version
-        run: 'sed -i "s#<PackageVersion>0.0.0</PackageVersion>#<PackageVersion>${{ github.event.inputs.version }}</PackageVersion>#" UserDataStore.MySql/UserDataStore.MySql.cspoj'
+        run: 'sed -i "s#<PackageVersion>0.0.0</PackageVersion>#<PackageVersion>${{ github.event.inputs.version }}</PackageVersion>#" UserDataStore.MySql/UserDataStore.MySql.csproj'
       - name: Update informational version
-        run: 'sed -i "s#<InformationalVersion>0.0.0</InformationalVersion>#<InformationalVersion>${{ github.event.inputs.version }}</InformationalVersion>#" UserDataStore.MySql/UserDataStore.MySql.cspoj'
+        run: 'sed -i "s#<InformationalVersion>0.0.0</InformationalVersion>#<InformationalVersion>${{ github.event.inputs.version }}</InformationalVersion>#" UserDataStore.MySql/UserDataStore.MySql.csproj'
       - name: Build
         run: dotnet build --configuration Release
       - name: Push UserDataStore to NuGet
