@@ -1,0 +1,34 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Plugin Version (SemVer: https://semver.org)"
+        required: true
+
+jobs:
+  build:
+    name: "NuGet Deployment"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout Repository
+        with:
+          fetch-depth: 0
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: 7.0.x
+      - name: Update version
+        run: 'sed -i "s#<Version>0.0.0</Version>#<Version>${{ github.event.inputs.version }}</Version>#" UserDataStore.MySql/UserDataStore.MySql.cspoj'
+      - name: Update package version
+        run: 'sed -i "s#<PackageVersion>0.0.0</PackageVersion>#<PackageVersion>${{ github.event.inputs.version }}</PackageVersion>#" UserDataStore.MySql/UserDataStore.MySql.cspoj'
+      - name: Update informational version
+        run: 'sed -i "s#<InformationalVersion>0.0.0</InformationalVersion>#<InformationalVersion>${{ github.event.inputs.version }}</InformationalVersion>#" UserDataStore.MySql/UserDataStore.MySql.cspoj'
+      - name: Build
+        run: dotnet build --configuration Release
+      - name: Push UserDataStore to NuGet
+        run: dotnet nuget push UserDataStore.MySql/bin/Release/*.nupkg
+          --api-key ${{ secrets.NUGET_DEPLOY_KEY }}
+          --source https://api.nuget.org/v3/index.json
