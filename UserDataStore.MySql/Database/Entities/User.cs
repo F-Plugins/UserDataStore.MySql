@@ -1,5 +1,4 @@
 ﻿using OpenMod.API.Users;
-using System.Text.Json;
 
 namespace UserDataStore.MySql.Database.Entities;
 
@@ -41,8 +40,8 @@ internal class User
             FirstSeen = FirstSeen,
             LastSeen = LastSeen,
             BanInfo = null,
-            Permissions = GrantedPermissions.Select(p => p.Permission).ToHashSet(),
-            Roles = GrantedRoles.Select(p => p.RoleId).ToHashSet(),
+            Permissions = new HashSet<string>(GrantedPermissions.Select(p => p.Permission)),
+            Roles = new HashSet<string>(GrantedRoles.Select(p => p.RoleId)),
             Data = GenericDatas.ToDictionary(x => x.Key, x => x.Deserialize())
         };
     }
