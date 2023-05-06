@@ -1,11 +1,16 @@
 ﻿using Autofac;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using OpenMod.API.Eventing;
 using OpenMod.API.Ioc;
 using OpenMod.API.Plugins;
 using OpenMod.API.Prioritization;
 using OpenMod.API.Users;
+using OpenMod.Core.Plugins.Events;
+using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Timers;
 using UserDataStore.MySql.Database;
 using UserDataStore.MySql.Database.Entities;
 
@@ -13,13 +18,38 @@ namespace UserDataStore.MySql;
 
 // most of the code is from https://github.com/openmod/openmod/blob/main/framework/OpenMod.Core/Users/UserDataStore.cs
 [ServiceImplementation(Lifetime = ServiceLifetime.Singleton, Priority = Priority.Lowest)]
-internal class MySqlUserDataStore : IUserDataStore
+internal class MySqlUserDataStore : IUserDataStore, IDisposable
 {
+    private readonly ConcurrentDictionary<(string, string), UserData> _cachedUserData = new();
     private readonly IPluginAccessor<UserDataStorePlugin> _pluginAccessor;
+    private readonly IDisposable _configurationChangedEventDiposable;
+    private System.Timers.Timer? _timer;
+    private bool UseCache => Configuration.GetSection("Cache:UseCache").Get<bool>();
+    private double RefreshInterval => Configuration.GetSection("Cache:RefreshInterval").Get<double>();
 
-    public MySqlUserDataStore(IPluginAccessor<UserDataStorePlugin> pluginAccessor)
+    public MySqlUserDataStore(IPluginAccessor<UserDataStorePlugin> pluginAccessor, IEventBus eventBus)
     {
         _pluginAccessor = pluginAccessor;
+
+        _configurationChangedEventDiposable = eventBus.Subscribe(pluginAccessor.Instance ?? throw new Exception("The plugin is not loaded. Make sure that there are no errors while loading"), (IServiceProvider __, object? _, PluginConfigurationChangedEvent @event) =>
+        {
+            if (@event.Plugin.GetType() != typeof(UserDataStorePlugin).GetType())
+                return Task.CompletedTask;
+
+            if (_timer is not null)
+            {
+                _timer.Stop();
+                _timer.Dispose();
+            }
+
+            if (UseCache)
+                InitializeCacheTimer();
+
+            return Task.CompletedTask;
+        });
+
+        if (UseCache)
+            InitializeCacheTimer();
     }
 
     public Task<UserData?> GetUserDataAsync(string userId, string userType)
@@ -35,6 +65,12 @@ internal class MySqlUserDataStore : IUserDataStore
         }
 
         UserData? data = null;
+        bool useCache = UseCache;
+
+        if (useCache && _cachedUserData.TryGetValue((userId, userType), out data))
+        {
+            return Task.FromResult<UserData?>(data);
+        }
 
         /* 
          * There is a reason for this...
@@ -55,6 +91,9 @@ internal class MySqlUserDataStore : IUserDataStore
                 .FirstOrDefaultAsync(u => u.Id == userId && u.Type == userType);
             data = user?.ToUserData();
         }).Wait();
+
+        if (useCache && data is not null)
+            _cachedUserData.TryAdd((userId, userType), data);
 
         return Task.FromResult(data);
     }
@@ -125,6 +164,8 @@ internal class MySqlUserDataStore : IUserDataStore
         var data = await context.UserGenericDatas.FindAsync(new { userId, userType, key });
         var json = value is null ? null : JsonSerializer.Serialize(value);
 
+        _cachedUserData.TryRemove((userId, userType), out _);
+
         if (data is null)
         {
             if (json is null)
@@ -180,7 +221,33 @@ internal class MySqlUserDataStore : IUserDataStore
         user.Update(userData);
         context.Users.Update(user);
         await context.SaveChangesAsync();
+        _cachedUserData.TryRemove((userData.Id ?? "", userData.Type ?? ""), out _);
+    }
+
+    private void InitializeCacheTimer()
+    {
+        _timer = new()
+        {
+            Interval = TimeSpan.FromSeconds(RefreshInterval).TotalMilliseconds
+        };
+        _timer.Elapsed += ClearCache;
+        _timer.Start();
+    }
+
+    private void ClearCache(object sender, ElapsedEventArgs e)
+    {
+        _cachedUserData.Clear();
     }
 
     private UserDataStoreDbContext GetDbContext() => _pluginAccessor.Instance?.LifetimeScope.Resolve<UserDataStoreDbContext>() ?? throw new Exception("The plugin is not loaded. Make sure that there are no errors while loading");
+
+    private IConfiguration Configuration => _pluginAccessor.Instance?.LifetimeScope.Resolve<IConfiguration>() ?? throw new Exception("The plugin is not loaded. Make sure that there are no errors while loading");
+
+    public void Dispose()
+    {
+        _configurationChangedEventDiposable.Dispose();
+        _cachedUserData.Clear();
+        _timer?.Stop();
+        _timer?.Dispose();
+    }
 }
