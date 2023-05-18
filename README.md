@@ -18,4 +18,8 @@ openmod install Feli.UserDataStore.MySql
 Database:
   ConnectionStrings:
     Default: "Server=127.0.0.1; Database=openmod; Port=3306; User=openmod; Password=password"
+
+Cache:
+  UseCache: true 
+  RefreshInterval: 1200 # In Seconds
 ```
