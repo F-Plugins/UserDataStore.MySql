@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using OpenMod.API;
 using OpenMod.API.Eventing;
 using OpenMod.API.Ioc;
 using OpenMod.API.Plugins;
@@ -27,11 +28,11 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
     private bool UseCache => Configuration.GetSection("Cache:UseCache").Get<bool>();
     private double RefreshInterval => Configuration.GetSection("Cache:RefreshInterval").Get<double>();
 
-    public MySqlUserDataStore(IPluginAccessor<UserDataStorePlugin> pluginAccessor, IEventBus eventBus)
+    public MySqlUserDataStore(IPluginAccessor<UserDataStorePlugin> pluginAccessor, IRuntime runtime, IEventBus eventBus)
     {
         _pluginAccessor = pluginAccessor;
 
-        _configurationChangedEventDiposable = eventBus.Subscribe(pluginAccessor.Instance ?? throw new Exception("The plugin is not loaded. Make sure that there are no errors while loading"), (IServiceProvider __, object? _, PluginConfigurationChangedEvent @event) =>
+        _configurationChangedEventDiposable = eventBus.Subscribe(runtime, (IServiceProvider __, object? _, PluginConfigurationChangedEvent @event) =>
         {
             if (@event.Plugin.GetType() != typeof(UserDataStorePlugin).GetType())
                 return Task.CompletedTask;
@@ -139,6 +140,7 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
             .Include(u => u.GrantedRoles)
             .Include(u => u.GrantedPermissions)
             .Include(u => u.GenericDatas)
+            .Where(u => u.Type == type)
             .Select(u => u.ToUserData())
             .ToListAsync();
     }
