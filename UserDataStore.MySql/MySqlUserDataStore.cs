@@ -8,6 +8,7 @@ using OpenMod.API.Ioc;
 using OpenMod.API.Plugins;
 using OpenMod.API.Prioritization;
 using OpenMod.API.Users;
+using OpenMod.Core.Helpers;
 using OpenMod.Core.Plugins.Events;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -23,7 +24,7 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
 {
     private readonly ConcurrentDictionary<(string, string), UserData> _cachedUserData = new();
     private readonly IPluginAccessor<UserDataStorePlugin> _pluginAccessor;
-    private readonly IDisposable _configurationChangedEventDiposable;
+    private readonly List<IDisposable> _eventDisposables;
     private System.Timers.Timer? _timer;
     private bool UseCache => Configuration.GetSection("Cache:UseCache").Get<bool>();
     private double RefreshInterval => Configuration.GetSection("Cache:RefreshInterval").Get<double>();
@@ -32,25 +33,35 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
     {
         _pluginAccessor = pluginAccessor;
 
-        _configurationChangedEventDiposable = eventBus.Subscribe(runtime, (IServiceProvider __, object? _, PluginConfigurationChangedEvent @event) =>
+        _eventDisposables = new()
         {
-            if (@event.Plugin.GetType() != typeof(UserDataStorePlugin).GetType())
-                return Task.CompletedTask;
-
-            if (_timer is not null)
+            eventBus.Subscribe(runtime, (IServiceProvider __, object? _, PluginConfigurationChangedEvent @event) =>
             {
-                _timer.Stop();
-                _timer.Dispose();
-            }
+                if (@event.Plugin.GetType() != typeof(UserDataStorePlugin).GetType())
+                    return Task.CompletedTask;
 
-            if (UseCache)
-                InitializeCacheTimer();
+                if (_timer is not null)
+                {
+                    _timer.Stop();
+                    _timer.Dispose();
+                }
 
-            return Task.CompletedTask;
-        });
+                if (UseCache)
+                    InitializeCacheTimer();
 
-        if (UseCache)
-            InitializeCacheTimer();
+                return Task.CompletedTask;
+            }),
+            eventBus.Subscribe(runtime, (IServiceProvider __, object? _, PluginLoadedEvent @event) =>
+            {
+                if(@event.Plugin.GetType() != typeof(UserDataStorePlugin).GetType())
+                    return Task.CompletedTask;
+
+                if(UseCache)
+                    InitializeCacheTimer();
+
+                return Task.CompletedTask;
+            })
+        };
     }
 
     public Task<UserData?> GetUserDataAsync(string userId, string userType)
@@ -247,7 +258,7 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
 
     public void Dispose()
     {
-        _configurationChangedEventDiposable.Dispose();
+        _eventDisposables.DisposeAll();
         _cachedUserData.Clear();
         _timer?.Stop();
         _timer?.Dispose();
