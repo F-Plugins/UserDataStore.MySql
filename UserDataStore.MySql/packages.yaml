@@ -1,0 +1,5 @@
+packages:
+  - id: SilK.Unturned.Extras
+    version: 1.7.3
+  - id: OpenMod.EntityFrameworkCore.MySql
+    version: 3.3.14
