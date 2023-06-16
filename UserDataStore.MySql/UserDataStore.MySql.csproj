@@ -26,6 +26,7 @@
 		</PackageReference>
 		<PackageReference Include="OpenMod.Core" Version="3.3.14" />
 		<PackageReference Include="OpenMod.EntityFrameworkCore.MySql" Version="3.3.14" />
+		<PackageReference Include="SilK.Unturned.Extras" Version="1.7.3" />
 	</ItemGroup>
 
 	<ItemGroup>
