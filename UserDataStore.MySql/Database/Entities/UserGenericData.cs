@@ -17,5 +17,5 @@ internal class UserGenericData
         UserType = userType;
     }
 
-    public object? Deserialize() => SerializedValue is null ? null : JsonSerializer.Deserialize<object>(SerializedValue);
+    public T? Deserialize<T>() => SerializedValue is null ? default : JsonSerializer.Deserialize<T>(SerializedValue);
 }

@@ -10,7 +10,6 @@ using OpenMod.API.Prioritization;
 using OpenMod.API.Users;
 using OpenMod.Core.Helpers;
 using OpenMod.Core.Plugins.Events;
-using SilK.Unturned.Extras.Dispatcher;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Timers;
@@ -25,16 +24,14 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
 {
     private readonly ConcurrentDictionary<(string, string), UserData> _cachedUserData = new();
     private readonly IPluginAccessor<UserDataStorePlugin> _pluginAccessor;
-    private readonly IActionDispatcher _dispatcher;
     private readonly List<IDisposable> _eventDisposables;
     private System.Timers.Timer? _timer;
     private bool UseCache => Configuration.GetSection("Cache:UseCache").Get<bool>();
     private double RefreshInterval => Configuration.GetSection("Cache:RefreshInterval").Get<double>();
 
-    public MySqlUserDataStore(IPluginAccessor<UserDataStorePlugin> pluginAccessor, IActionDispatcher dispatcher, IRuntime runtime, IEventBus eventBus)
+    public MySqlUserDataStore(IPluginAccessor<UserDataStorePlugin> pluginAccessor, IRuntime runtime, IEventBus eventBus)
     {
         _pluginAccessor = pluginAccessor;
-        _dispatcher = dispatcher;
 
         _eventDisposables = new()
         {
@@ -67,7 +64,7 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
         };
     }
 
-    public async Task<UserData?> GetUserDataAsync(string userId, string userType)
+    public Task<UserData?> GetUserDataAsync(string userId, string userType)
     {
         if (string.IsNullOrEmpty(userId))
         {
@@ -79,16 +76,15 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
             throw new ArgumentException(nameof(userType));
         }
 
-        return await _dispatcher.Enqueue(async () =>
+        bool useCache = UseCache;
+        UserData? data = null;
+        if (useCache && _cachedUserData.TryGetValue((userId, userType), out data))
         {
-            UserData? data = null;
-            bool useCache = UseCache;
+            return Task.FromResult<UserData?>(data);
+        }
 
-            if (useCache && _cachedUserData.TryGetValue((userId, userType), out data))
-            {
-                return data;
-            }
-
+        Task.Run(async () =>
+        {
             /* 
              * There is a reason for this...
              * OpenMod saves the command context in thread
@@ -104,12 +100,12 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
                 .Include(u => u.GenericDatas)
                 .FirstOrDefaultAsync(u => u.Id == userId && u.Type == userType);
             data = user?.ToUserData();
+        }).Wait();
 
-            if (useCache && data is not null)
-                _cachedUserData.TryAdd((userId, userType), data);
+        if (useCache && data is not null)
+            _cachedUserData.TryAdd((userId, userType), data);
 
-            return data;
-        });
+        return Task.FromResult(data);
     }
 
     public async Task<T?> GetUserDataAsync<T>(string userId, string userType, string key)
@@ -129,19 +125,17 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
             throw new ArgumentException(nameof(key));
         }
 
-        return await _dispatcher.Enqueue(async () =>
-        {
-            await using var context = GetDbContext();
-            var data = await context.UserGenericDatas.AsNoTracking().FirstOrDefaultAsync(d => d.UserId == userId && d.UserType == userType && d.Key == key);
+        await using var context = GetDbContext();
+        var data = await context.UserGenericDatas.AsNoTracking().FirstOrDefaultAsync(d => d.UserId == userId && d.UserType == userType && d.Key == key);
 
-            if (data is null)
-                return default;
-
-            if (data is T obj)
-                return obj;
-
+        if (data is null)
             return default;
-        });
+
+        var actualData = data.Deserialize<T>();
+        if (actualData is not null)
+            return actualData;
+
+        return default;
     }
 
     public async Task<IReadOnlyCollection<UserData>> GetUsersDataAsync(string type)
@@ -151,17 +145,14 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
             throw new ArgumentException(nameof(type));
         }
 
-        return await _dispatcher.Enqueue(async () =>
-        {
-            await using var context = GetDbContext();
-            return await context.Users
-                .Include(u => u.GrantedRoles)
-                .Include(u => u.GrantedPermissions)
-                .Include(u => u.GenericDatas)
-                .Where(u => u.Type == type)
-                .Select(u => u.ToUserData())
-                .ToListAsync();
-        });
+        await using var context = GetDbContext();
+        return await context.Users
+            .Include(u => u.GrantedRoles)
+            .Include(u => u.GrantedPermissions)
+            .Include(u => u.GenericDatas)
+            .Where(u => u.Type == type)
+            .Select(u => u.ToUserData())
+            .ToListAsync();
     }
 
     public async Task SetUserDataAsync<T>(string userId, string userType, string key, T? value)
@@ -181,34 +172,31 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
             throw new ArgumentException(nameof(key));
         }
 
-        await _dispatcher.Enqueue(async () =>
+        await using var context = GetDbContext();
+        var data = await context.UserGenericDatas.FindAsync(key, userId, userType);
+        var json = value is null ? null : JsonSerializer.Serialize(value);
+
+        _cachedUserData.TryRemove((userId, userType), out _);
+
+        if (data is null)
         {
-            await using var context = GetDbContext();
-            var data = await context.UserGenericDatas.FindAsync(new { userId, userType, key });
-            var json = value is null ? null : JsonSerializer.Serialize(value);
-
-            _cachedUserData.TryRemove((userId, userType), out _);
-
-            if (data is null)
-            {
-                if (json is null)
-                    return;
-
-                await context.UserGenericDatas.AddAsync(new UserGenericData(key, json, userId, userType));
-                await context.SaveChangesAsync();
+            if (json is null)
                 return;
-            }
 
-            if (value is null)
-            {
-                context.UserGenericDatas.Remove(data);
-                await context.SaveChangesAsync();
-                return;
-            }
-
-            data.SerializedValue = json;
+            await context.UserGenericDatas.AddAsync(new UserGenericData(key, json, userId, userType));
             await context.SaveChangesAsync();
-        });
+            return;
+        }
+
+        if (value is null)
+        {
+            context.UserGenericDatas.Remove(data);
+            await context.SaveChangesAsync();
+            return;
+        }
+
+        data.SerializedValue = json;
+        await context.SaveChangesAsync();
     }
 
     public async Task SetUserDataAsync(UserData userData)
@@ -230,25 +218,23 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
                 $"User data missing required property: {nameof(UserData.Type)}", nameof(userData));
         }
 
-        await _dispatcher.Enqueue(async () =>
+        await using var context = GetDbContext();
+        var user = await context.Users
+            .Include(u => u.GrantedRoles)
+            .Include(u => u.GrantedPermissions) // generic data is not needed 
+            .FirstOrDefaultAsync(u => u.Id == userData.Id && u.Type == userData.Type);
+        if (user is null)
         {
-            await using var context = GetDbContext();
-            var user = await context.Users
-                .Include(u => u.GrantedRoles)
-                .Include(u => u.GrantedPermissions) // generic data is not needed 
-                .FirstOrDefaultAsync(u => u.Id == userData.Id && u.Type == userData.Type);
-            if (user is null)
-            {
-                user ??= new User(userData.Id!, userData.Type!);
-                await context.Users.AddAsync(user);
-                await context.SaveChangesAsync();
-            }
-
+            user ??= new User(userData.Id!, userData.Type!);
             user.Update(userData);
-            context.Users.Update(user);
+            await context.Users.AddAsync(user);
             await context.SaveChangesAsync();
-            _cachedUserData.TryRemove((userData.Id ?? "", userData.Type ?? ""), out _);
-        });
+            return;
+        }
+        user.Update(userData);
+        context.Users.Update(user);
+        await context.SaveChangesAsync();
+        _cachedUserData.TryRemove((userData.Id ?? "", userData.Type ?? ""), out _);
     }
 
     private void InitializeCacheTimer()

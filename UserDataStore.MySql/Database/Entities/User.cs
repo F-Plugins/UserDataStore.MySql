@@ -42,7 +42,7 @@ internal class User
             BanInfo = null,
             Permissions = new HashSet<string>(GrantedPermissions.Select(p => p.Permission)),
             Roles = new HashSet<string>(GrantedRoles.Select(p => p.RoleId)),
-            Data = GenericDatas.ToDictionary(x => x.Key, x => x.Deserialize())
+            Data = GenericDatas.ToDictionary(x => x.Key, x => x.Deserialize<object>())
         };
     }
 }
