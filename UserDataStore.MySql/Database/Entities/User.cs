@@ -1,4 +1,5 @@
 ﻿using OpenMod.API.Users;
+using System.Text.Json;
 
 namespace UserDataStore.MySql.Database.Entities;
 
@@ -28,6 +29,7 @@ internal class User
         BanInfo = data.BanInfo == null ? null : new UserBan() { InstigatorId = data.BanInfo.InstigatorId, InstigatorType = data.BanInfo.InstigatorType, ExpireDate = data.BanInfo.ExpireDate, Reason = data.BanInfo.Reason };
         GrantedPermissions = data.Permissions?.Select(p => new UserGrantedPermission(p, Id, Type)).ToList() ?? new List<UserGrantedPermission>();
         GrantedRoles = data.Roles?.Select(r => new UserGrantedRole(r, Id, Type)).ToList() ?? new List<UserGrantedRole>();
+        GenericDatas = data.Data?.Select(d => new UserGenericData(d.Key, JsonSerializer.Serialize(d.Value), Id, Type)).ToList() ?? new List<UserGenericData>();
     }
 
     public UserData ToUserData()
