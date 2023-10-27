@@ -221,7 +221,8 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
         await using var context = GetDbContext();
         var user = await context.Users
             .Include(u => u.GrantedRoles)
-            .Include(u => u.GrantedPermissions) // generic data is not needed 
+            .Include(u => u.GrantedPermissions)
+            .Include(u => u.GenericDatas)
             .FirstOrDefaultAsync(u => u.Id == userData.Id && u.Type == userData.Type);
         if (user is null)
         {
@@ -231,6 +232,7 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
             await context.SaveChangesAsync();
             return;
         }
+
         user.Update(userData);
         context.Users.Update(user);
         await context.SaveChangesAsync();
