@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+﻿using Newtonsoft.Json;
 
 namespace UserDataStore.MySql.Database.Entities;
 
@@ -17,5 +17,5 @@ internal class UserGenericData
         UserType = userType;
     }
 
-    public T? Deserialize<T>() => SerializedValue is null ? default : JsonSerializer.Deserialize<T>(SerializedValue);
+    public T? Deserialize<T>() => SerializedValue is null ? default : JsonConvert.DeserializeObject<T>(SerializedValue);
 }

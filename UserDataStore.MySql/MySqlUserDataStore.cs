@@ -2,6 +2,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Newtonsoft.Json;
 using OpenMod.API;
 using OpenMod.API.Eventing;
 using OpenMod.API.Ioc;
@@ -11,7 +12,6 @@ using OpenMod.API.Users;
 using OpenMod.Core.Helpers;
 using OpenMod.Core.Plugins.Events;
 using System.Collections.Concurrent;
-using System.Text.Json;
 using System.Timers;
 using UserDataStore.MySql.Database;
 using UserDataStore.MySql.Database.Entities;
@@ -174,7 +174,7 @@ internal class MySqlUserDataStore : IUserDataStore, IDisposable
 
         await using var context = GetDbContext();
         var data = await context.UserGenericDatas.FindAsync(key, userId, userType);
-        var json = value is null ? null : JsonSerializer.Serialize(value);
+        var json = value is null ? null : JsonConvert.SerializeObject(value);
 
         _cachedUserData.TryRemove((userId, userType), out _);
 
